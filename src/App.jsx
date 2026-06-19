@@ -356,7 +356,7 @@ export default function App() {
       } else {
         const textKey = Object.keys(inputs).find(k => inputs[k] && typeof inputs[k] === 'string' && !inputs[k].startsWith('data:') && !k.endsWith('_filename'));
         if (textKey && inputs[textKey]) {
-          parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...' : inputs[textKey]);
+parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...' : inputs[textKey]);
         }
       }
     }
@@ -365,18 +365,20 @@ export default function App() {
   };
 
   // Handle Query Submission
-  const handleQuerySubmit = async (e) => {
-    e.preventDefault();
+  const handleQuerySubmit = async (e, customInputs = null) => {
+    if (e && e.preventDefault) e.preventDefault();
     setApiError(null);
     setQueryResult(null);
 
     const activeCat = categories.find(c => c.id === selectedCatId);
     if (!activeCat) return;
 
+    const currentInputs = customInputs || inputValues;
+
     // Validate inputs
     const errors = {};
     activeCat.fields.forEach(field => {
-      if (field.required && !inputValues[field.name]) {
+      if (field.required && !currentInputs[field.name]) {
         errors[field.name] = t.reqFieldErr;
       }
     });
@@ -392,9 +394,9 @@ export default function App() {
       // Spezifische Logik für Song-Analyse:
       // "Wird sie befüllt sucht die KI Songs die diese Textpassage enthalten. Ein erfasster Interpret schränkt die Suche auf diesen Interpret ein. Der Song-Titel wird nicht berücksichtigt."
       let preparedCategory = { ...activeCat };
-      let preparedInputs = { ...inputValues };
+      let preparedInputs = { ...currentInputs };
 
-      if (activeCat.name === 'Song-Analyse' && inputValues['passage']) {
+      if (activeCat.name === 'Song-Analyse' && currentInputs['passage']) {
         // Adjust the query payload or instructions dynamically for Song-Analyse if passage is filled
         preparedCategory.template = "Sucht Songs, die die folgende Textpassage enthalten: '{passage}'.\nEingeschränkter Interpret (falls vorhanden): '{interpret}'. Der Song-Titel wird nicht berücksichtigt.\n\nDer Bericht soll folgende Abschnitte enthalten:\n1. Erscheinungsjahr\n2. Einordnung in Musikstil / Genre\n3. Musikalische Besonderheiten";
       }
@@ -406,9 +408,9 @@ export default function App() {
       const cleanInputs = {};
       activeCat.fields.forEach(f => {
         // Store the value
-        cleanInputs[f.name] = inputValues[f.name];
-        if (f.type === 'file' && inputValues[`${f.name}_filename`]) {
-          cleanInputs[`${f.name}_filename`] = inputValues[`${f.name}_filename`];
+        cleanInputs[f.name] = currentInputs[f.name];
+        if (f.type === 'file' && currentInputs[`${f.name}_filename`]) {
+          cleanInputs[`${f.name}_filename`] = currentInputs[`${f.name}_filename`];
         }
       });
 
@@ -456,17 +458,20 @@ export default function App() {
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setInputValues(prev => ({ 
-        ...prev, 
+      const nextInputs = { 
+        ...inputValues, 
         [fieldName]: reader.result,
         [`${fieldName}_filename`]: file.name
-      }));
+      };
+      setInputValues(nextInputs);
       setInputErrors(prev => ({ ...prev, [fieldName]: null }));
+      
+      // Auto-submit query directly after setting the file value!
+      handleQuerySubmit(null, nextInputs);
     };
     reader.readAsDataURL(file);
   };
 
-  // Category CRUD Operations
   const handleAddNewCategory = () => {
     setEditingCategory({
       name: '',
