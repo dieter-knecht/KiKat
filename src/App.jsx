@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { version as appVersion } from '../package.json';
 import { dbService } from './utils/db';
 import { encryptData, decryptData } from './utils/crypto';
 import { sendGeminiQuery } from './utils/gemini';
@@ -42,7 +44,7 @@ const TRANSLATIONS = {
     savedMsg: 'Erfolgreich gespeichert!',
     reqFieldErr: 'Dieses Feld ist ein Pflichtfeld',
     fileSizeErr: 'Datei ist zu groß (maximal 30 MB)',
-    fileFormatErr: 'Ungültiges Dateiformat (nur JPG, PNG, WEBP)',
+    fileFormatErr: 'Ungültiges Dateiformat (nur JPG, PNG, WEBP, PDF)',
     queryBtn: 'Anfrage senden',
     progressMsg: 'Die KI analysiert Ihre Anfrage...',
     exportPdfBtn: 'Als PDF exportieren',
@@ -89,7 +91,7 @@ const TRANSLATIONS = {
     savedMsg: 'Saved successfully!',
     reqFieldErr: 'This field is required',
     fileSizeErr: 'File is too large (max 30 MB)',
-    fileFormatErr: 'Invalid file format (only JPG, PNG, WEBP)',
+    fileFormatErr: 'Invalid file format (only JPG, PNG, WEBP, PDF)',
     queryBtn: 'Send Request',
     progressMsg: 'AI is analyzing your request...',
     exportPdfBtn: 'Export to PDF',
@@ -150,6 +152,57 @@ const DEFAULT_CATEGORIES = [
       'Bewertung der Bildkomposition',
       'Einschätzung: reales Foto oder KI-generiertes Bild (mit Begründung)'
     ]
+  },
+  {
+    id: 3,
+    name: 'Dokumentenverarbeitung',
+    description: 'Extrahierung strukturierter JSON-Daten aus Rechnungen und Belegen.',
+    fields: [
+      { name: 'dokument', label: 'Beleg (PDF/Bild)', type: 'file', required: true }
+    ],
+    template: `Du bist ein System zur automatisierten Dokumentenverarbeitung für Schweizer Belege. Deine Aufgabe ist es, Daten aus dem bereitgestellten Dokument strukturiert als JSON zu extrahieren.
+
+WICHTIGE EXTRAKTIONS-REGELN:
+
+AUSSCHLUSS (Recyclinggebühr oder zusätzliche angaben auf Artikelebene):
+- Ignoriere Detailzeilen innerhalb der Artikeltabelle, die den Text "Recyclinggebühr" oder "vRG" direkt beim Produkt enthalten.
+- Der Betrag dieser eingebetteten Recyclinggebühr darf NICHT als eigene Position extrahiert und NICHT in die Berechnung des Artikel-Einzelpreises einbezogen werden.
+
+EXTRAKTION (vRB / globale Gebühren, Fracht, Spesen unterhalb der Tabelle):
+- Suche unterhalb der Artikeltabelle im Bereich der Gesamtsummen explizit nach dem Feld "vRB" (vorgezogene Recyclinggebühr) oder "vRG".
+- Extrahiere diesen Wert zwingend als globales Rechnungsfeld.
+
+Erwartetes Ausgabeformat (JSON):
+
+Antworte ausschließlich mit einem validen JSON-Objekt in folgender Struktur:
+{
+  "rechnungs_informationen": {
+    "beleg_nummer": "String",
+    "datum": "String"
+  },
+  "positionen": [
+    {
+      "artikel_nr": "String",
+      "bezeichnung": "Hauptbezeichnung des Artikels (Texte wie 'Recyclinggebühr' hier komplett ignorieren)",
+      "menge": 1,
+      "preis_exkl_mwst": 0.0,
+      "total_exkl_mwst": 0.0
+    }
+  ],
+  "gesamtsummen": {
+    "zwischensumme_exkl_mwst": 0.0,
+    "skonto": 0.0,
+    "vrb": 0.0,
+    "Spesen": 0.0,
+    "mwst_betrag": 0.0,
+    "total_inkl_mwst": 0.0
+  }
+}
+
+Aufgabe:
+
+Verarbeite das Dokument und liefere ausschließlich das JSON-Objekt zurück. Keine Erklärungen, kein Markdown-Inhalt außerhalb des JSON-Blocks.`,
+    outputSections: ['Extrahierte JSON-Daten']
   }
 ];
 
@@ -178,9 +231,17 @@ export default function App() {
 
   // Settings State
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('gemini-1.5-flash');
+  const [model, setModel] = useState('gemini-3.1-flash-lite-preview');
   const [pdfPath, setPdfPath] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [availableModels, setAvailableModels] = useState([
+    { name: 'gemini-3.1-flash-lite-preview', displayName: 'Gemini 3.1 Flash Lite Preview' },
+    { name: 'gemini-1.5-flash', displayName: 'gemini-1.5-flash' },
+    { name: 'gemini-1.5-pro-latest', displayName: 'gemini-1.5-pro' },
+    { name: 'gemini-2.0-flash-exp', displayName: 'gemini-2.0-flash-exp' }
+  ]);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+
 
   // Mobile Sidebar
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -207,7 +268,7 @@ export default function App() {
       }
 
       // 4. Model
-      const localModel = await dbService.getSetting('gemini_model', 'gemini-1.5-flash');
+      const localModel = await dbService.getSetting('gemini_model', 'gemini-3.1-flash-lite-preview');
       setModel(localModel);
 
       // 5. PDF Path
@@ -216,11 +277,19 @@ export default function App() {
 
       // 6. Load Categories
       let cats = await dbService.getAllCategories();
-      if (cats.length === 0) {
-        // Seed default categories
-        for (const defaultCat of DEFAULT_CATEGORIES) {
-          await dbService.addCategory(defaultCat);
+      let hasMissingDefaults = false;
+      for (const defaultCat of DEFAULT_CATEGORIES) {
+        if (!cats.find(c => c.name === defaultCat.name)) {
+          const { id, ...newCat } = defaultCat;
+          try {
+            await dbService.addCategory(newCat);
+            hasMissingDefaults = true;
+          } catch (e) {
+            console.error('Failed to insert default category:', e);
+          }
         }
+      }
+      if (cats.length === 0 || hasMissingDefaults) {
         cats = await dbService.getAllCategories();
       }
       setCategories(cats);
@@ -268,6 +337,33 @@ export default function App() {
     setHistoryList(hist);
   };
 
+  const generateExtendedTitle = (catName, inputs, suggestedTitle) => {
+    const parts = [catName];
+
+    if (catName === 'Song-Analyse') {
+      const interpret = inputs['interpret'];
+      const titel = inputs['titel'];
+      if (interpret || titel) {
+        parts.push([interpret, titel].filter(Boolean).join(' - '));
+      }
+    } else {
+      if (suggestedTitle) {
+        parts.push(suggestedTitle);
+      }
+      const filenameKey = Object.keys(inputs).find(k => k.endsWith('_filename'));
+      if (filenameKey && inputs[filenameKey]) {
+        parts.push(inputs[filenameKey]);
+      } else {
+        const textKey = Object.keys(inputs).find(k => inputs[k] && typeof inputs[k] === 'string' && !inputs[k].startsWith('data:') && !k.endsWith('_filename'));
+        if (textKey && inputs[textKey]) {
+          parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...' : inputs[textKey]);
+        }
+      }
+    }
+
+    return parts.join(' - ');
+  };
+
   // Handle Query Submission
   const handleQuerySubmit = async (e) => {
     e.preventDefault();
@@ -303,22 +399,25 @@ export default function App() {
         preparedCategory.template = "Sucht Songs, die die folgende Textpassage enthalten: '{passage}'.\nEingeschränkter Interpret (falls vorhanden): '{interpret}'. Der Song-Titel wird nicht berücksichtigt.\n\nDer Bericht soll folgende Abschnitte enthalten:\n1. Erscheinungsjahr\n2. Einordnung in Musikstil / Genre\n3. Musikalische Besonderheiten";
       }
 
-      const resultSections = await sendGeminiQuery(preparedCategory, preparedInputs);
-      setQueryResult(resultSections);
+      const { sections, suggestedTitle } = await sendGeminiQuery(preparedCategory, preparedInputs);
+      setQueryResult(sections);
 
       // Save to History
       const cleanInputs = {};
       activeCat.fields.forEach(f => {
-        // Do not store full base64 file data directly to keep history clean, or store it (since IndexedDB handles large records)
         // Store the value
         cleanInputs[f.name] = inputValues[f.name];
+        if (f.type === 'file' && inputValues[`${f.name}_filename`]) {
+          cleanInputs[`${f.name}_filename`] = inputValues[`${f.name}_filename`];
+        }
       });
 
       const historyEntry = {
         categoryId: activeCat.id,
         categoryName: activeCat.name,
+        extendedTitle: generateExtendedTitle(activeCat.name, cleanInputs, suggestedTitle),
         inputs: cleanInputs,
-        response: resultSections
+        response: sections
       };
       await dbService.addHistoryEntry(historyEntry);
       await reloadHistory();
@@ -336,8 +435,10 @@ export default function App() {
     }
   };
 
-  const handleExportPDF = (cat, inputs, resSections) => {
-    const name = `${cat.name}_Bericht_${new Date().toISOString().slice(0,10)}.pdf`;
+  const handleExportPDF = (cat, inputs, resSections, customTitle = null) => {
+    const title = customTitle || generateExtendedTitle(cat.name, inputs);
+    const safeTitle = title.replace(/[^a-z0-9äöüß\-_]/gi, '_');
+    const name = `${safeTitle}_${new Date().toISOString().slice(0,10)}.pdf`;
     exportToPDF(cat, inputs, resSections, name);
   };
 
@@ -348,14 +449,18 @@ export default function App() {
       setInputErrors(prev => ({ ...prev, [fieldName]: t.fileSizeErr }));
       return;
     }
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type)) {
       setInputErrors(prev => ({ ...prev, [fieldName]: t.fileFormatErr }));
       return;
     }
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setInputValues(prev => ({ ...prev, [fieldName]: reader.result }));
+      setInputValues(prev => ({ 
+        ...prev, 
+        [fieldName]: reader.result,
+        [`${fieldName}_filename`]: file.name
+      }));
       setInputErrors(prev => ({ ...prev, [fieldName]: null }));
     };
     reader.readAsDataURL(file);
@@ -465,9 +570,17 @@ export default function App() {
     <div className="app-container">
       {/* Sidebar Layout */}
       <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
-        <div className="sidebar-brand">
-          <FileText size={26} />
-          <span>{t.appName}</span>
+        <div className="sidebar-brand" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <FileText size={26} />
+            <span>{t.appName}</span>
+          </div>
+          <button 
+            className="mobile-close-btn"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <X size={24} />
+          </button>
         </div>
         <nav className="sidebar-menu">
           <div
@@ -510,11 +623,19 @@ export default function App() {
       {/* Main Layout Area */}
       <div className="main-layout">
         <header className="top-bar">
-          <div className="page-title">
-            {activeTab === 'query' && t.navQuery}
-            {activeTab === 'history' && t.navHistory}
-            {activeTab === 'manage' && t.navManage}
-            {activeTab === 'settings' && t.navSettings}
+          <div className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button 
+              className="mobile-menu-toggle"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              <Menu size={24} />
+            </button>
+            <span>
+              {activeTab === 'query' && t.navQuery}
+              {activeTab === 'history' && t.navHistory}
+              {activeTab === 'manage' && t.navManage}
+              {activeTab === 'settings' && t.navSettings}
+            </span>
           </div>
           <div className="top-bar-actions">
             <button className="btn btn-secondary" onClick={() => changeLang(lang === 'de' ? 'en' : 'de')}>
@@ -605,13 +726,17 @@ export default function App() {
                                   >
                                     <Upload size={24} style={{ color: 'var(--text-muted)' }} />
                                     <p style={{ fontSize: '13px' }}>
-                                      {lang === 'de' ? 'Bild per Drag & Drop hierhin ziehen oder klicken' : 'Drag & drop image here or click to select'}
+                                      {lang === 'de' ? 'Bild/PDF per Drag & Drop hierhin ziehen oder klicken' : 'Drag & drop image/PDF here or click to select'}
                                     </p>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>JPG, PNG, WEBP (Max 30MB)</span>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>JPG, PNG, WEBP, PDF (Max 30MB)</span>
                                   </div>
                                 ) : (
                                   <div className="file-preview">
-                                    <img src={inputValues[field.name]} alt="Preview" />
+                                    {inputValues[field.name].startsWith('data:application/pdf') ? (
+                                      <div style={{ padding: '20px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', textAlign: 'center' }}>📄 PDF-Dokument angehängt</div>
+                                    ) : (
+                                      <img src={inputValues[field.name]} alt="Preview" />
+                                    )}
                                     <button
                                       type="button"
                                       className="remove-file-btn"
@@ -625,7 +750,7 @@ export default function App() {
                                   type="file"
                                   id={`file-${field.name}`}
                                   style={{ display: 'none' }}
-                                  accept="image/png, image/jpeg, image/webp"
+                                  accept="image/png, image/jpeg, image/webp, application/pdf"
                                   onChange={e => handleFileChange(field.name, e.target.files[0])}
                                 />
                               </div>
@@ -656,7 +781,27 @@ export default function App() {
                           <AlertCircle size={24} style={{ color: 'var(--error)' }} />
                           <div>
                             <p style={{ color: 'var(--error)', fontSize: '14px', fontWeight: 600 }}>Fehler bei Abfrage</p>
-                            <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{apiError}</p>
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                              {apiError}
+                              {' '}
+                              <button
+                                type="button"
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: 'var(--accent)',
+                                  textDecoration: 'underline',
+                                  cursor: 'pointer',
+                                  padding: '0',
+                                  fontSize: '13px',
+                                  fontFamily: 'inherit',
+                                  fontWeight: '500'
+                                }}
+                                onClick={() => setActiveTab('settings')}
+                              >
+                                {lang === 'de' ? 'Hier geht es zu den Einstellungen.' : 'Go to Settings.'}
+                              </button>
+                            </p>
                           </div>
                         </div>
                       )}
@@ -676,7 +821,7 @@ export default function App() {
                             <div className="result-section" key={idx}>
                               <h3>{section.title}</h3>
                               <div className="markdown-body">
-                                <p style={{ whiteSpace: 'pre-wrap' }}>{section.content}</p>
+                                <ReactMarkdown>{section.content}</ReactMarkdown>
                               </div>
                             </div>
                           ))}
@@ -701,7 +846,7 @@ export default function App() {
                   <div className="card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                       <div>
-                        <h2>{selectedHistoryItem.categoryName}</h2>
+                        <h2>{selectedHistoryItem.extendedTitle || selectedHistoryItem.categoryName}</h2>
                         <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
                           {new Date(selectedHistoryItem.timestamp).toLocaleString('de-DE')}
                         </p>
@@ -756,7 +901,7 @@ export default function App() {
                       {historyList.map(item => (
                         <div key={item.id} className="history-item" onClick={() => setSelectedHistoryItem(item)}>
                           <div className="history-item-details">
-                            <h4>{item.categoryName}</h4>
+                            <h4>{item.extendedTitle || item.categoryName}</h4>
                             <p>{new Date(item.timestamp).toLocaleString('de-DE')}</p>
                           </div>
                           <div style={{ display: 'flex', gap: '8px' }}>
@@ -769,7 +914,7 @@ export default function App() {
                                   name: item.categoryName,
                                   fields: Object.keys(item.inputs).map(k => ({ name: k, label: k }))
                                 };
-                                handleExportPDF(catObj, item.inputs, item.response);
+                                handleExportPDF(catObj, item.inputs, item.response, item.extendedTitle);
                               }}
                             >
                               <Download size={14} />
@@ -885,7 +1030,7 @@ export default function App() {
                     <h3 style={{ marginBottom: '10px' }}>{t.templateTitle}</h3>
                     <textarea
                       className="input-control"
-                      rows={4}
+                      rows={8}
                       placeholder={t.templatePlaceholder}
                       value={editingCategory.template}
                       onChange={e => setEditingCategory({ ...editingCategory, template: e.target.value })}
@@ -895,7 +1040,26 @@ export default function App() {
                   <div style={{ marginBottom: '24px' }}>
                     <h3 style={{ marginBottom: '12px' }}>{t.outputSectionsTitle}</h3>
                     {editingCategory.outputSections.map((section, idx) => (
-                      <div className="output-section-row" key={idx}>
+                      <div 
+                        className="output-section-row" 
+                        key={idx}
+                        draggable
+                        onDragStart={(e) => { e.dataTransfer.setData('text/plain', idx.toString()); }}
+                        onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.opacity = '0.5'; }}
+                        onDragLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.currentTarget.style.opacity = '1';
+                          const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                          if (fromIdx !== idx && !isNaN(fromIdx)) {
+                            const newSections = [...editingCategory.outputSections];
+                            const [moved] = newSections.splice(fromIdx, 1);
+                            newSections.splice(idx, 0, moved);
+                            setEditingCategory({ ...editingCategory, outputSections: newSections });
+                          }
+                        }}
+                        style={{ cursor: 'grab', display: 'flex', gap: '8px', marginBottom: '8px' }}
+                      >
                         <input
                           type="text"
                           className="input-control"
@@ -973,14 +1137,65 @@ export default function App() {
                     value={apiKey}
                     onChange={e => setApiKey(e.target.value)}
                   />
+                  <div style={{ marginTop: '8px', textAlign: 'right' }}>
+                    <a 
+                      href="https://aistudio.google.com/app/apikey" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="btn-link"
+                      style={{ color: 'var(--text-secondary)', fontSize: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <SettingsIcon size={12} />
+                      {lang === 'de' ? 'Google API-Quota & Limits überprüfen' : 'Check Google API Quota & Limits'}
+                    </a>
+                  </div>
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">{t.apiModelLabel}</label>
+                  <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    {t.apiModelLabel}
+                    <button 
+                      type="button" 
+                      onClick={async () => {
+                        if (!apiKey) {
+                          alert('Bitte zuerst einen API-Schlüssel eingeben!');
+                          return;
+                        }
+                        setIsFetchingModels(true);
+                        try {
+                          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                          const data = await res.json();
+                          if (data.models) {
+                            const validModels = data.models
+                              .filter(m => m.supportedGenerationMethods.includes('generateContent'))
+                              .map(m => ({
+                                name: m.name.replace('models/', ''),
+                                displayName: m.displayName || m.name.replace('models/', '')
+                              }));
+                            setAvailableModels(validModels);
+                            if (validModels.length > 0) {
+                              setModel(validModels[0].name);
+                            }
+                            alert('Modelle erfolgreich geladen!');
+                          } else {
+                            alert('Fehler: ' + (data.error?.message || 'Keine Modelle gefunden'));
+                          }
+                        } catch (err) {
+                          alert('Netzwerkfehler: ' + err.message);
+                        } finally {
+                          setIsFetchingModels(false);
+                        }
+                      }}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline', fontSize: '12px' }}
+                      disabled={isFetchingModels}
+                    >
+                      {isFetchingModels ? 'Lade...' : 'Verfügbare Modelle abrufen'}
+                    </button>
+                  </label>
                   <select className="input-control" value={model} onChange={e => setModel(e.target.value)}>
-                    <option value="gemini-1.5-flash">gemini-1.5-flash</option>
-                    <option value="gemini-1.5-pro">gemini-1.5-pro</option>
-                    <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp</option>
+                    {availableModels.map(m => (
+                      <option key={m.name} value={m.name}>{m.displayName} ({m.name})</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1015,6 +1230,9 @@ export default function App() {
                     {t.savedMsg}
                   </span>
                 )}
+              </div>
+              <div style={{ marginTop: '20px', color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center' }}>
+                v{appVersion}
               </div>
             </div>
           )}

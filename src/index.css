@@ -531,6 +531,16 @@ body {
   margin-top: 4px;
 }
 
+.mobile-menu-toggle,
+.mobile-close-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 4px;
+}
+
 /* Responsive Styles */
 @media (max-width: 992px) {
   .sidebar {
@@ -544,5 +554,12 @@ body {
   
   .main-layout {
     margin-left: 0;
+  }
+
+  .mobile-menu-toggle,
+  .mobile-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 }

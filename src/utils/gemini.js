@@ -11,7 +11,13 @@ export async function sendGeminiQuery(category, inputValues) {
     throw new Error('API_KEY_INVALID');
   }
 
-  const model = await dbService.getSetting('gemini_model', 'gemini-1.5-flash');
+  let model = await dbService.getSetting('gemini_model', 'gemini-3.1-flash-lite-preview');
+  if (model === 'gemini-1.5-pro') {
+    model = 'gemini-1.5-pro-latest';
+  }
+  if (model === 'gemini-1.5-flash') {
+    model = 'gemini-1.5-flash-latest';
+  }
 
   let prompt = category.template || '';
   const inlineImages = [];
@@ -30,7 +36,7 @@ export async function sendGeminiQuery(category, inputValues) {
           });
         }
       }
-      prompt = prompt.replace(new RegExp(`{${field.name}}`, 'g'), '[Beigefügtes Bild]');
+      prompt = prompt.replace(new RegExp(`{${field.name}}`, 'g'), '[Beigefügte Datei]');
     } else {
       const textVal = value || '';
       prompt = prompt.replace(new RegExp(`{${field.name}}`, 'g'), textVal);
@@ -47,7 +53,13 @@ Jeder Abschnitt soll detailliert und formatiert (in Markdown) beantwortet werden
 Gewünschte Abschnitte:
 ${sectionsString}
 
-Antworte im vorgegebenen JSON-Format mit einem 'sections' Array.`;
+Antworte **ausschließlich** im JSON-Format. Die JSON-Ausgabe muss exakt dieses Schema haben:
+{
+  "suggestedTitle": "Generiere hier einen passenden Titel (z.B. für Bilder: Kurze Beschreibung des Inhalts. Für Dokumente: Dokumentenart + Absender. Max 60 Zeichen).",
+  "sections": [
+    { "title": "Abschnittsname", "content": "Detaillierter Markdown-Inhalt" }
+  ]
+}`;
 
   const requestBody = {
     contents: [
@@ -59,24 +71,7 @@ Antworte im vorgegebenen JSON-Format mit einem 'sections' Array.`;
       }
     ],
     generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: 'OBJECT',
-        properties: {
-          sections: {
-            type: 'ARRAY',
-            items: {
-              type: 'OBJECT',
-              properties: {
-                title: { type: 'STRING' },
-                content: { type: 'STRING', description: 'Detailed markdown content for the section' }
-              },
-              required: ['title', 'content']
-            }
-          }
-        },
-        required: ['sections']
-      }
+      responseMimeType: 'application/json'
     }
   };
 
@@ -112,10 +107,25 @@ Antworte im vorgegebenen JSON-Format mit einem 'sections' Array.`;
   }
 
   try {
-    const parsed = JSON.parse(textResponse);
-    return parsed.sections || [];
+    let cleanText = textResponse.trim();
+    if (cleanText.startsWith('```json')) {
+      cleanText = cleanText.substring(7);
+    } else if (cleanText.startsWith('```')) {
+      cleanText = cleanText.substring(3);
+    }
+    if (cleanText.endsWith('```')) {
+      cleanText = cleanText.substring(0, cleanText.length - 3);
+    }
+    const parsed = JSON.parse(cleanText.trim());
+    return { 
+      sections: parsed.sections || [], 
+      suggestedTitle: parsed.suggestedTitle || '' 
+    };
   } catch (err) {
     console.error('Failed to parse JSON response', err);
-    return [{ title: 'Antwort', content: textResponse }];
+    return { 
+      sections: [{ title: 'Antwort', content: textResponse }], 
+      suggestedTitle: '' 
+    };
   }
 }

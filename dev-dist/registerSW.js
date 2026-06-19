@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) navigator.serviceWorker.register('/KiKat/dev-sw.js?dev-sw', { scope: '/KiKat/', type: 'classic' })
