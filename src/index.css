@@ -349,6 +349,13 @@ body {
   overflow: hidden;
   border: 1px solid var(--border);
   margin-top: 10px;
+  transition: var(--transition);
+}
+
+.file-preview.dragging {
+  border-color: var(--accent);
+  background-color: rgba(99, 102, 241, 0.08);
+  opacity: 0.8;
 }
 
 .file-preview img {

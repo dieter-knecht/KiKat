@@ -731,7 +731,18 @@ export default function App() {
                                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>JPG, PNG, WEBP, PDF (Max 30MB)</span>
                                   </div>
                                 ) : (
-                                  <div className="file-preview">
+                                  <div 
+                                    className="file-preview"
+                                    onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('dragging'); }}
+                                    onDragLeave={e => e.currentTarget.classList.remove('dragging')}
+                                    onDrop={e => {
+                                      e.preventDefault();
+                                      e.currentTarget.classList.remove('dragging');
+                                      if (e.dataTransfer.files.length > 0) {
+                                        handleFileChange(field.name, e.dataTransfer.files[0]);
+                                      }
+                                    }}
+                                  >
                                     {inputValues[field.name].startsWith('data:application/pdf') ? (
                                       <div style={{ padding: '20px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', textAlign: 'center' }}>📄 PDF-Dokument angehängt</div>
                                     ) : (
@@ -740,7 +751,10 @@ export default function App() {
                                     <button
                                       type="button"
                                       className="remove-file-btn"
-                                      onClick={() => setInputValues({ ...inputValues, [field.name]: '' })}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setInputValues({ ...inputValues, [field.name]: '' });
+                                      }}
                                     >
                                       <X size={16} />
                                     </button>
