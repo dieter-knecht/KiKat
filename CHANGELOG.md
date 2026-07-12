@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-12
+
+### Added
+- **Zentrale Kategorie-Bibliothek**: Einführung einer zentralen Bibliothek zum Teilen und Verwalten von Abfrage-Kategorien.
+- **Kategorie-Versionierung**: Unterstützung von Versionen (SemVer wie Patch/Minor/Major) für einzelne Kategorien.
+- **Rollback & Update**: Möglichkeit, ältere Versionen einer Kategorie aus der Bibliothek herunterzuladen und lokal zu aktivieren (Rollback) oder bestehende Kategorien zu aktualisieren.
+- **Änderungsverfolgung**: Anzeige lokaler ungespeicherter Anpassungen ("Lokale Änderungen") bei lokal geänderten Kategorien.
+- **Offline-Resilienz**: Vollständige Offline-Fähigkeit aller lokalen Abfragen und Kategorien dank lokaler IndexedDB-Speicherung.
+- **Begleit-Server**: Bereitstellung eines minimalen PHP-Backends (`api/library.php`) für Shared-Webhostings und eines Node.js-Backends (`server/index.js`) für eigene Server.
+- **Konfiguration**: Einstellbare API-URL für die Bibliothek in den Einstellungen, inklusive automatischem Sandbox-Simulationsmodus bei leerer URL.
+
+## [1.1.6] - 2026-06-24
+
+### Fixed
+- **Song Analysis**: Fixed a logic error where searching by text passage skipped the song identification. The AI is now explicitly prompted to output "Gefundener Song & Interpret".
+- **AI Stability**: Gemini API calls now utilize `system_instruction`, strict JSON `responseSchema`, and a lower `temperature` (0.3) for significantly more reliable and accurate factual analysis without hallucinated or broken JSON.
+
 ## [1.1.5] - 2026-06-19
 
 ### Added

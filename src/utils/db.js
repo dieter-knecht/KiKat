@@ -1,11 +1,13 @@
 const DB_NAME = 'kikat_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export function initDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = (e) => {
       const db = e.target.result;
+      const oldVersion = e.oldVersion;
+
       if (!db.objectStoreNames.contains('categories')) {
         db.createObjectStore('categories', { keyPath: 'id', autoIncrement: true });
       }
@@ -14,6 +16,41 @@ export function initDB() {
       }
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'key' });
+      }
+
+      if (oldVersion < 2) {
+        // Migration of existing categories to include version, libraryKey, and isCustomized fields
+        const transaction = e.target.transaction;
+        if (transaction) {
+          const store = transaction.objectStore('categories');
+          store.openCursor().onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (cursor) {
+              const category = cursor.value;
+              let updated = false;
+              if (category.version === undefined) {
+                category.version = '1.0.0';
+                updated = true;
+              }
+              if (category.libraryKey === undefined) {
+                // Generate a stable key/slug based on name
+                category.libraryKey = (category.name || '')
+                  .toLowerCase()
+                  .trim()
+                  .replace(/[^a-z0-9]+/g, '-');
+                updated = true;
+              }
+              if (category.isCustomized === undefined) {
+                category.isCustomized = false;
+                updated = true;
+              }
+              if (updated) {
+                cursor.update(category);
+              }
+              cursor.continue();
+            }
+          };
+        }
       }
     };
     request.onsuccess = (e) => resolve(e.target.result);
@@ -51,9 +88,19 @@ export const dbService = {
   },
 
   addCategory(category) {
+    const slug = (category.name || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-');
+    const enriched = {
+      version: '1.0.0',
+      libraryKey: slug || `cat-${Date.now()}`,
+      isCustomized: false,
+      ...category
+    };
     return getStore('categories', 'readwrite').then((store) => {
       return new Promise((resolve, reject) => {
-        const req = store.add(category);
+        const req = store.add(enriched);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       });

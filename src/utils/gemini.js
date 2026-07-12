@@ -51,27 +51,41 @@ Bitte erstelle eine strukturierte Antwort, die genau den folgenden gewünschten 
 Jeder Abschnitt soll detailliert und formatiert (in Markdown) beantwortet werden.
 
 Gewünschte Abschnitte:
-${sectionsString}
-
-Antworte **ausschließlich** im JSON-Format. Die JSON-Ausgabe muss exakt dieses Schema haben:
-{
-  "suggestedTitle": "Generiere hier einen passenden Titel (z.B. für Bilder: Kurze Beschreibung des Inhalts. Für Dokumente: Dokumentenart + Absender. Max 60 Zeichen).",
-  "sections": [
-    { "title": "Abschnittsname", "content": "Detaillierter Markdown-Inhalt" }
-  ]
-}`;
+${sectionsString}`;
 
   const requestBody = {
+    system_instruction: {
+      parts: [{ text: systemPrompt }]
+    },
     contents: [
       {
         parts: [
-          { text: `${systemPrompt}\n\nBenutzer-Prompt:\n${prompt}` },
+          { text: `Benutzer-Prompt:\n${prompt}` },
           ...inlineImages
         ]
       }
     ],
     generationConfig: {
-      responseMimeType: 'application/json'
+      temperature: 0.3,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: "OBJECT",
+        properties: {
+          suggestedTitle: { type: "STRING", description: "Generiere hier einen passenden Titel (z.B. für Bilder: Kurze Beschreibung des Inhalts. Für Dokumente: Dokumentenart + Absender. Max 60 Zeichen)." },
+          sections: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                title: { type: "STRING", description: "Der genaue Name des angeforderten Abschnitts." },
+                content: { type: "STRING", description: "Detaillierter Markdown-Inhalt für diesen Abschnitt." }
+              },
+              required: ["title", "content"]
+            }
+          }
+        },
+        required: ["suggestedTitle", "sections"]
+      }
     }
   };
 

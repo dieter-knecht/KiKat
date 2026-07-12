@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { version as appVersion } from '../package.json';
 import { dbService } from './utils/db';
 import { encryptData, decryptData } from './utils/crypto';
 import { sendGeminiQuery } from './utils/gemini';
 import { exportToPDF } from './utils/pdf';
+import { libraryService } from './utils/library';
 import {
   FileText,
   History,
   Settings as SettingsIcon,
-  FolderOpen,
   Plus,
   Trash2,
   Download,
@@ -24,7 +24,11 @@ import {
   X,
   Languages,
   Save,
-  Check
+  Check,
+  BookOpen,
+  CloudDownload,
+  UploadCloud,
+  RefreshCw
 } from 'lucide-react';
 
 const TRANSLATIONS = {
@@ -73,7 +77,34 @@ const TRANSLATIONS = {
       file: 'Datei-Upload'
     },
     songAnalysisDefault: 'Song-Analyse',
-    imageAnalysisDefault: 'Bild-Analyse'
+    imageAnalysisDefault: 'Bild-Analyse',
+    
+    // New Library keys
+    navLibrary: 'Bibliothek',
+    libraryTitle: 'Zentrale Kategorie-Bibliothek',
+    libraryApiLabel: 'Bibliotheks-API-URL (leer für Simulation)',
+    libraryStatusNotInstalled: 'Nicht installiert',
+    libraryStatusInstalled: 'Installiert',
+    libraryStatusUpdate: 'Update verfügbar',
+    libraryStatusModified: 'Lokale Änderungen',
+    publishBtn: 'Veröffentlichen',
+    publishTitle: 'Kategorie veröffentlichen',
+    publishVersionLabel: 'Zielversion',
+    publishNotesLabel: 'Versionshinweise / Changelog',
+    publishSuccess: 'Erfolgreich in Bibliothek veröffentlicht!',
+    installBtn: 'Installieren',
+    rollbackBtn: 'Zurückrollen',
+    historyVersions: 'Versionsverlauf',
+    noLibraryCats: 'Keine Kategorien in der Bibliothek gefunden.',
+    searchLibraryPlaceholder: 'Bibliothek durchsuchen...',
+    libStatusOffline: 'Die Bibliothek ist zurzeit offline oder die API-URL ist ungültig.',
+    localDraft: 'Lokaler Entwurf',
+    localChanges: 'Lokale Änderungen',
+    newVersion: 'Neue Version',
+    releaseTypePatch: 'Patch (Kleine Korrektur/Anpassung)',
+    releaseTypeMinor: 'Minor (Neue optionale Felder)',
+    releaseTypeMajor: 'Major (Strukturelle Änderungen)',
+    customVersion: 'Benutzerdefinierte Version'
   },
   en: {
     appName: 'KiKat',
@@ -120,7 +151,34 @@ const TRANSLATIONS = {
       file: 'File Upload'
     },
     songAnalysisDefault: 'Song Analysis',
-    imageAnalysisDefault: 'Image Analysis'
+    imageAnalysisDefault: 'Image Analysis',
+
+    // New Library keys
+    navLibrary: 'Library',
+    libraryTitle: 'Central Category Library',
+    libraryApiLabel: 'Library API URL (empty for simulation)',
+    libraryStatusNotInstalled: 'Not installed',
+    libraryStatusInstalled: 'Installed',
+    libraryStatusUpdate: 'Update available',
+    libraryStatusModified: 'Local changes',
+    publishBtn: 'Publish',
+    publishTitle: 'Publish Category',
+    publishVersionLabel: 'Target Version',
+    publishNotesLabel: 'Release Notes / Changelog',
+    publishSuccess: 'Published to library successfully!',
+    installBtn: 'Install',
+    rollbackBtn: 'Rollback',
+    historyVersions: 'Version History',
+    noLibraryCats: 'No categories found in library.',
+    searchLibraryPlaceholder: 'Search library...',
+    libStatusOffline: 'The library is currently offline or the API URL is invalid.',
+    localDraft: 'Local Draft',
+    localChanges: 'Local changes',
+    newVersion: 'New Version',
+    releaseTypePatch: 'Patch (Bugfix / small edit)',
+    releaseTypeMinor: 'Minor (New optional fields)',
+    releaseTypeMajor: 'Major (Structural changes)',
+    customVersion: 'Custom Version'
   }
 };
 
@@ -128,6 +186,9 @@ const DEFAULT_CATEGORIES = [
   {
     id: 1,
     name: 'Song-Analyse',
+    version: '1.1.6',
+    libraryKey: 'song-analyse',
+    isCustomized: false,
     description: 'Analyse von Liedern, Genres und textlichen/musikalischen Besonderheiten.',
     fields: [
       { name: 'interpret', label: 'Interpret', type: 'text', required: false },
@@ -140,6 +201,9 @@ const DEFAULT_CATEGORIES = [
   {
     id: 2,
     name: 'Bild-Analyse',
+    version: '1.0.0',
+    libraryKey: 'bild-analyse',
+    isCustomized: false,
     description: 'Detaillierte Analyse eines Bildes per Vision-API.',
     fields: [
       { name: 'bild', label: 'Bilddatei (JPG, PNG, WEBP)', type: 'file', required: true }
@@ -156,6 +220,9 @@ const DEFAULT_CATEGORIES = [
   {
     id: 3,
     name: 'Dokumentenverarbeitung',
+    version: '1.0.0',
+    libraryKey: 'dokumentenverarbeitung',
+    isCustomized: false,
     description: 'Extrahierung strukturierter JSON-Daten aus Rechnungen und Belegen.',
     fields: [
       { name: 'dokument', label: 'Beleg (PDF/Bild)', type: 'file', required: true }
@@ -233,6 +300,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('gemini-3.1-flash-lite-preview');
   const [pdfPath, setPdfPath] = useState('');
+  const [libraryApiUrl, setLibraryApiUrl] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [availableModels, setAvailableModels] = useState([
     { name: 'gemini-3.1-flash-lite-preview', displayName: 'Gemini 3.1 Flash Lite Preview' },
@@ -242,6 +310,18 @@ export default function App() {
   ]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
 
+  // Library & Versioning States
+  const [libraryCategories, setLibraryCategories] = useState([]);
+  const [searchLibraryQuery, setSearchLibraryQuery] = useState('');
+  const [isLibraryLoading, setIsLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState(null);
+
+  // Publish Modal States
+  const [publishingCategory, setPublishingCategory] = useState(null);
+  const [publishTargetVersion, setPublishTargetVersion] = useState('1.0.0');
+  const [publishChangelog, setPublishChangelog] = useState('');
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishSuccessMsg, setPublishSuccessMsg] = useState(false);
 
   // Mobile Sidebar
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -275,12 +355,17 @@ export default function App() {
       const localPdfPath = await dbService.getSetting('pdf_export_path', '');
       setPdfPath(localPdfPath);
 
+      // 5b. Library API URL
+      const localLibApiUrl = await dbService.getSetting('library_api_url', '');
+      setLibraryApiUrl(localLibApiUrl);
+
       // 6. Load Categories
       let cats = await dbService.getAllCategories();
       let hasMissingDefaults = false;
       for (const defaultCat of DEFAULT_CATEGORIES) {
         if (!cats.find(c => c.name === defaultCat.name)) {
-          const { id, ...newCat } = defaultCat;
+          const newCat = { ...defaultCat };
+          delete newCat.id;
           try {
             await dbService.addCategory(newCat);
             hasMissingDefaults = true;
@@ -320,6 +405,7 @@ export default function App() {
     await dbService.saveSetting('gemini_api_key', encKey);
     await dbService.saveSetting('gemini_model', model);
     await dbService.saveSetting('pdf_export_path', pdfPath);
+    await dbService.saveSetting('library_api_url', libraryApiUrl);
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 2000);
   };
@@ -398,7 +484,8 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
 
       if (activeCat.name === 'Song-Analyse' && currentInputs['passage']) {
         // Adjust the query payload or instructions dynamically for Song-Analyse if passage is filled
-        preparedCategory.template = "Sucht Songs, die die folgende Textpassage enthalten: '{passage}'.\nEingeschränkter Interpret (falls vorhanden): '{interpret}'. Der Song-Titel wird nicht berücksichtigt.\n\nDer Bericht soll folgende Abschnitte enthalten:\n1. Erscheinungsjahr\n2. Einordnung in Musikstil / Genre\n3. Musikalische Besonderheiten";
+        preparedCategory.template = "Sucht den Song, der die folgende Textpassage enthält: '{passage}'.\nEingeschränkter Interpret (falls vorhanden): '{interpret}'.\n\nDer Bericht soll folgende Abschnitte enthalten:\n1. Gefundener Song & Interpret\n2. Erscheinungsjahr\n3. Einordnung in Musikstil / Genre\n4. Musikalische Besonderheiten";
+        preparedCategory.outputSections = ['Gefundener Song & Interpret', 'Erscheinungsjahr', 'Einordnung in Musikstil / Genre', 'Musikalische Besonderheiten'];
       }
 
       const { sections, suggestedTitle } = await sendGeminiQuery(preparedCategory, preparedInputs);
@@ -491,9 +578,19 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
     if (!editingCategory.name.trim()) return;
 
     if (editingCategory.id) {
-      await dbService.updateCategory(editingCategory);
+      // Mark as customized since a local edit was made
+      const updatedCat = { ...editingCategory, isCustomized: true };
+      await dbService.updateCategory(updatedCat);
     } else {
-      await dbService.addCategory(editingCategory);
+      // Create new category with draft state
+      const slug = editingCategory.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+      const newCat = {
+        ...editingCategory,
+        version: '1.0.0',
+        libraryKey: slug || `cat-${Date.now()}`,
+        isCustomized: true
+      };
+      await dbService.addCategory(newCat);
     }
     const updated = await reloadCategories();
     setEditingCategory(null);
@@ -504,8 +601,15 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
 
   const handleSaveAsNewCategory = async () => {
     if (!editingCategory.name.trim()) return;
-    const { id, ...copyData } = editingCategory;
+    const copyData = { ...editingCategory };
+    delete copyData.id;
     copyData.name = `${copyData.name} (Kopie)`;
+    // Set as new customized category
+    const slug = copyData.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+    copyData.libraryKey = slug || `cat-${Date.now()}`;
+    copyData.version = '1.0.0';
+    copyData.isCustomized = true;
+
     await dbService.addCategory(copyData);
     await reloadCategories();
     setEditingCategory(null);
@@ -519,6 +623,128 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
         setSelectedCatId(updated.length > 0 ? updated[0].id : null);
       }
       setEditingCategory(null);
+    }
+  };
+
+  // SemVer helper to suggest next version increments
+  const suggestNextVersions = (currentVersion) => {
+    const parts = (currentVersion || '1.0.0').split('.').map(p => parseInt(p, 10));
+    if (parts.length !== 3 || parts.some(isNaN)) {
+      return { patch: '1.0.1', minor: '1.1.0', major: '2.0.0' };
+    }
+    const [major, minor, patch] = parts;
+    return {
+      patch: `${major}.${minor}.${patch + 1}`,
+      minor: `${major}.${minor + 1}.0`,
+      major: `${major + 1}.0.0`
+    };
+  };
+
+  // Central Library API actions
+  const loadLibrary = async () => {
+    setIsLibraryLoading(true);
+    setLibraryError(null);
+    try {
+      const data = await libraryService.getCategories(libraryApiUrl);
+      setLibraryCategories(data);
+    } catch (err) {
+      console.error(err);
+      setLibraryError(t.libStatusOffline);
+    } finally {
+      setIsLibraryLoading(false);
+    }
+  };
+
+  // Fetch library data when changing tabs to Library
+  useEffect(() => {
+    if (activeTab === 'library') {
+      const timer = setTimeout(() => {
+        loadLibrary();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, libraryApiUrl]);
+
+  const handleOpenPublish = (cat) => {
+    setPublishingCategory(cat);
+    const suggestions = suggestNextVersions(cat.version);
+    setPublishTargetVersion(suggestions.patch);
+    setPublishChangelog('');
+    setPublishSuccessMsg(false);
+  };
+
+  const handlePublishCategory = async () => {
+    if (!publishingCategory) return;
+    setIsPublishing(true);
+    try {
+      const payload = {
+        name: publishingCategory.name,
+        libraryKey: publishingCategory.libraryKey,
+        version: publishTargetVersion,
+        description: publishingCategory.description,
+        fields: publishingCategory.fields,
+        template: publishingCategory.template,
+        outputSections: publishingCategory.outputSections,
+        changelog: publishChangelog
+      };
+
+      await libraryService.publishCategory(libraryApiUrl, payload);
+
+      // Save updated version status locally & reset isCustomized
+      const updatedCat = {
+        ...publishingCategory,
+        version: publishTargetVersion,
+        isCustomized: false
+      };
+      await dbService.updateCategory(updatedCat);
+      await reloadCategories();
+
+      setPublishSuccessMsg(true);
+      setTimeout(() => {
+        setPublishingCategory(null);
+        setPublishSuccessMsg(false);
+      }, 1500);
+
+      // Refresh lists if relevant
+      loadLibrary();
+    } catch (err) {
+      alert(lang === 'de' ? 'Fehler beim Veröffentlichen: ' + err.message : 'Error publishing: ' + err.message);
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleInstallLibraryCategory = async (libCat, targetVerObj) => {
+    try {
+      const existing = categories.find(c => c.libraryKey === libCat.libraryKey);
+
+      const newLocalCat = {
+        name: libCat.name,
+        description: libCat.description || targetVerObj.description,
+        libraryKey: libCat.libraryKey,
+        version: targetVerObj.version,
+        isCustomized: false,
+        fields: targetVerObj.fields,
+        template: targetVerObj.template,
+        outputSections: targetVerObj.outputSections
+      };
+
+      if (existing) {
+        newLocalCat.id = existing.id;
+        await dbService.updateCategory(newLocalCat);
+      } else {
+        await dbService.addCategory(newLocalCat);
+      }
+
+      await reloadCategories();
+      alert(lang === 'de'
+        ? `Kategorie "${libCat.name}" (v${targetVerObj.version}) erfolgreich installiert/aktualisiert!`
+        : `Category "${libCat.name}" (v${targetVerObj.version}) installed/updated successfully!`
+      );
+      loadLibrary();
+    } catch (err) {
+      alert(lang === 'de' ? 'Fehler bei Installation: ' + err.message : 'Installation error: ' + err.message);
     }
   };
 
@@ -610,6 +836,13 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
             {t.navManage}
           </div>
           <div
+            className={`sidebar-item ${activeTab === 'library' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('library'); setMobileMenuOpen(false); }}
+          >
+            <BookOpen size={18} />
+            {t.navLibrary}
+          </div>
+          <div
             className={`sidebar-item ${activeTab === 'settings' ? 'active' : ''}`}
             onClick={() => { setActiveTab('settings'); setMobileMenuOpen(false); }}
           >
@@ -639,6 +872,7 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
               {activeTab === 'query' && t.navQuery}
               {activeTab === 'history' && t.navHistory}
               {activeTab === 'manage' && t.navManage}
+              {activeTab === 'library' && t.navLibrary}
               {activeTab === 'settings' && t.navSettings}
             </span>
           </div>
@@ -1121,12 +1355,30 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
 
                   <div className="history-list">
                     {categories.map(cat => (
-                      <div key={cat.id} className="history-item" style={{ cursor: 'default' }}>
+                      <div key={cat.id} className="history-item" style={{ cursor: 'default', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                          <h4 style={{ fontSize: '16px' }}>{cat.name}</h4>
-                          <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{cat.description}</p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <h4 style={{ fontSize: '16px' }}>{cat.name}</h4>
+                            <span style={{ fontSize: '11px', padding: '2px 6px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', color: 'var(--text-secondary)' }}>
+                              v{cat.version || '1.0.0'}
+                            </span>
+                            {cat.isCustomized && (
+                              <span style={{ fontSize: '11px', padding: '2px 6px', background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)', color: 'var(--warning)', borderRadius: '4px', fontWeight: '500' }}>
+                                {t.localChanges}
+                              </span>
+                            )}
+                          </div>
+                          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px' }}>{cat.description}</p>
                         </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button 
+                            className="btn btn-secondary" 
+                            style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} 
+                            onClick={() => handleOpenPublish(cat)}
+                          >
+                            <UploadCloud size={14} />
+                            <span>{t.publishBtn}</span>
+                          </button>
                           <button className="btn btn-secondary" style={{ padding: '6px 10px' }} onClick={() => handleEditCategory(cat)}>
                             <Edit3 size={14} />
                           </button>
@@ -1230,6 +1482,17 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
                 </div>
 
                 <div className="form-group">
+                  <label className="form-label">{t.libraryApiLabel}</label>
+                  <input
+                    type="text"
+                    className="input-control"
+                    placeholder="https://yourserver.com/api/library.php"
+                    value={libraryApiUrl}
+                    onChange={e => setLibraryApiUrl(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group">
                   <label className="form-label">{t.languageLabel}</label>
                   <select className="input-control" value={lang} onChange={e => changeLang(e.target.value)}>
                     <option value="de">Deutsch</option>
@@ -1255,8 +1518,285 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
               </div>
             </div>
           )}
+
+          {/* TAB 5: LIBRARY */}
+          {activeTab === 'library' && (
+            <div>
+              <div className="card" style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <h2>{t.libraryTitle}</h2>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
+                      {libraryApiUrl 
+                        ? (lang === 'de' ? `Verbunden mit: ${libraryApiUrl}` : `Connected to: ${libraryApiUrl}`)
+                        : (lang === 'de' ? 'Lokaler Simulationsmodus (Sandbox)' : 'Local Simulation Mode (Sandbox)')}
+                    </p>
+                  </div>
+                  <button className="btn btn-secondary" onClick={loadLibrary} disabled={isLibraryLoading} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <RefreshCw size={14} className={isLibraryLoading ? 'spin-animation' : ''} />
+                    <span>{lang === 'de' ? 'Aktualisieren' : 'Refresh'}</span>
+                  </button>
+                </div>
+
+                <div style={{ marginTop: '20px' }}>
+                  <input
+                    type="text"
+                    className="input-control"
+                    placeholder={t.searchLibraryPlaceholder}
+                    value={searchLibraryQuery}
+                    onChange={e => setSearchLibraryQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {isLibraryLoading ? (
+                <div className="card text-center" style={{ padding: '40px' }}>
+                  <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
+                  <p style={{ color: 'var(--text-secondary)' }}>{lang === 'de' ? 'Lade Bibliothek...' : 'Loading library...'}</p>
+                </div>
+              ) : libraryError ? (
+                <div className="card text-center" style={{ borderLeft: '4px solid var(--error)', padding: '30px' }}>
+                  <AlertCircle size={32} style={{ color: 'var(--error)', margin: '0 auto 12px' }} />
+                  <h3 style={{ color: 'var(--error)', marginBottom: '8px' }}>{lang === 'de' ? 'Verbindung fehlgeschlagen' : 'Connection Failed'}</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '500px', margin: '0 auto' }}>
+                    {libraryError}
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {libraryCategories.length === 0 ? (
+                    <div className="card text-center" style={{ padding: '30px' }}>
+                      <p style={{ color: 'var(--text-secondary)' }}>{t.noLibraryCats}</p>
+                    </div>
+                  ) : (
+                    libraryCategories
+                      .filter(libCat => libCat.name.toLowerCase().includes(searchLibraryQuery.toLowerCase()) || 
+                                         (libCat.description || '').toLowerCase().includes(searchLibraryQuery.toLowerCase()))
+                      .map(libCat => {
+                        // Find matching local category
+                        const localCat = categories.find(c => c.libraryKey === libCat.libraryKey);
+                        
+                        // Determine status
+                        let statusText = t.libraryStatusNotInstalled;
+                        let statusColor = 'rgba(255,255,255,0.08)';
+                        let textColor = 'var(--text-secondary)';
+                        
+                        if (localCat) {
+                          if (localCat.version === libCat.latestVersion) {
+                            if (localCat.isCustomized) {
+                              statusText = t.libraryStatusModified;
+                              statusColor = 'rgba(245, 158, 11, 0.15)';
+                              textColor = 'var(--warning)';
+                            } else {
+                              statusText = t.libraryStatusInstalled;
+                              statusColor = 'rgba(16, 185, 129, 0.15)';
+                              textColor = 'var(--success)';
+                            }
+                          } else {
+                            statusText = t.libraryStatusUpdate;
+                            statusColor = 'rgba(99, 102, 241, 0.15)';
+                            textColor = 'var(--accent)';
+                          }
+                        }
+
+                        return (
+                          <div key={libCat.libraryKey} className="card" style={{ borderLeft: localCat ? `4px solid ${textColor}` : 'none' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
+                              <div>
+                                <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  {libCat.name}
+                                  <span style={{ fontSize: '12px', padding: '3px 8px', background: statusColor, color: textColor, borderRadius: '6px', fontWeight: '500' }}>
+                                    {statusText}
+                                  </span>
+                                </h3>
+                                <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '2px' }}>
+                                  {lang === 'de' ? `Neueste Version: v${libCat.latestVersion}` : `Latest Version: v${libCat.latestVersion}`}
+                                </p>
+                              </div>
+                            </div>
+                            
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '20px' }}>
+                              {libCat.description}
+                            </p>
+
+                            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                              <h4 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <History size={14} />
+                                <span>{t.historyVersions}</span>
+                              </h4>
+                              
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {libCat.versions && [...libCat.versions].reverse().map(verObj => {
+                                  const isCurrentLocalVersion = localCat && localCat.version === verObj.version;
+                                  let actionText = t.installBtn;
+                                  let isRollback = false;
+                                  
+                                  if (localCat) {
+                                    if (localCat.version !== verObj.version) {
+                                      const localVerIdx = libCat.versions.findIndex(v => v.version === localCat.version);
+                                      const thisVerIdx = libCat.versions.findIndex(v => v.version === verObj.version);
+                                      if (localVerIdx !== -1 && thisVerIdx < localVerIdx) {
+                                        actionText = t.rollbackBtn;
+                                        isRollback = true;
+                                      } else {
+                                        actionText = t.installBtn;
+                                      }
+                                    }
+                                  }
+
+                                  return (
+                                    <div key={verObj.version} style={{ background: 'rgba(0,0,0,0.1)', padding: '12px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                      <div style={{ flex: 1, minWidth: '200px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <strong style={{ fontSize: '13px' }}>v{verObj.version}</strong>
+                                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({verObj.date ? verObj.date.substring(0,10) : ''})</span>
+                                        </div>
+                                        {verObj.changelog && (
+                                          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>
+                                            &ldquo;{verObj.changelog}&rdquo;
+                                          </p>
+                                        )}
+                                      </div>
+                                      
+                                      <div>
+                                        {isCurrentLocalVersion && !localCat.isCustomized ? (
+                                          <span style={{ color: 'var(--success)', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <Check size={16} />
+                                            <span>{t.libraryStatusInstalled}</span>
+                                          </span>
+                                        ) : (
+                                          <button 
+                                            className={`btn btn-sm ${isRollback ? 'btn-danger' : 'btn-primary'}`} 
+                                            onClick={() => handleInstallLibraryCategory(libCat, verObj)}
+                                            style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
+                                          >
+                                            <CloudDownload size={12} />
+                                            <span>{actionText}</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </main>
       </div>
+
+      {/* PUBLISH MODAL */}
+      {publishingCategory && (
+        <div className="modal-backdrop" onClick={() => setPublishingCategory(null)}>
+          <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px', width: '90%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2>{t.publishTitle}</h2>
+              <button onClick={() => setPublishingCategory(null)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {publishSuccessMsg ? (
+              <div style={{ textAlign: 'center', padding: '30px 10px' }}>
+                <div style={{ display: 'inline-flex', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', padding: '16px', borderRadius: '50%', marginBottom: '16px' }}>
+                  <Check size={32} />
+                </div>
+                <p style={{ fontWeight: 600, color: 'var(--success)' }}>{t.publishSuccess}</p>
+              </div>
+            ) : (
+              <div>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '20px' }}>
+                  {lang === 'de' 
+                    ? `Veröffentliche Kategorie "${publishingCategory.name}" (Lokale Version: v${publishingCategory.version || '1.0.0'})` 
+                    : `Publishing category "${publishingCategory.name}" (Local version: v${publishingCategory.version || '1.0.0'})`}
+                </p>
+
+                <div className="form-group">
+                  <label className="form-label">{t.publishVersionLabel}</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '12px' }}>
+                    {(() => {
+                      const suggestions = suggestNextVersions(publishingCategory.version);
+                      return (
+                        <>
+                          <button 
+                            type="button" 
+                            className={`btn ${publishTargetVersion === suggestions.patch ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setPublishTargetVersion(suggestions.patch)}
+                            style={{ fontSize: '12px', padding: '8px 4px' }}
+                          >
+                            <div>Patch</div>
+                            <div style={{ opacity: 0.7, fontSize: '10px', marginTop: '2px' }}>v{suggestions.patch}</div>
+                          </button>
+                          <button 
+                            type="button" 
+                            className={`btn ${publishTargetVersion === suggestions.minor ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setPublishTargetVersion(suggestions.minor)}
+                            style={{ fontSize: '12px', padding: '8px 4px' }}
+                          >
+                            <div>Minor</div>
+                            <div style={{ opacity: 0.7, fontSize: '10px', marginTop: '2px' }}>v{suggestions.minor}</div>
+                          </button>
+                          <button 
+                            type="button" 
+                            className={`btn ${publishTargetVersion === suggestions.major ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setPublishTargetVersion(suggestions.major)}
+                            style={{ fontSize: '12px', padding: '8px 4px' }}
+                          >
+                            <div>Major</div>
+                            <div style={{ opacity: 0.7, fontSize: '10px', marginTop: '2px' }}>v{suggestions.major}</div>
+                          </button>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t.customVersion}:</span>
+                    <input 
+                      type="text" 
+                      className="input-control" 
+                      value={publishTargetVersion} 
+                      onChange={e => setPublishTargetVersion(e.target.value)}
+                      style={{ padding: '6px 12px', fontSize: '13px', width: '100px' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">{t.publishNotesLabel}</label>
+                  <textarea 
+                    className="input-control" 
+                    rows={4} 
+                    placeholder={lang === 'de' ? 'z.B. Feld X hinzugefügt, Fehler behoben' : 'e.g. Added field X, fixed bugs'}
+                    value={publishChangelog} 
+                    onChange={e => setPublishChangelog(e.target.value)}
+                  />
+                </div>
+
+                <button 
+                  className="btn btn-primary" 
+                  style={{ width: '100%', marginTop: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
+                  onClick={handlePublishCategory}
+                  disabled={isPublishing}
+                >
+                  {isPublishing ? (
+                    <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid #fff' }}></div>
+                  ) : (
+                    <UploadCloud size={16} />
+                  )}
+                  <span>{t.publishBtn}</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
