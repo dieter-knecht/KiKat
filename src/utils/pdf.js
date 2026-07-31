@@ -63,13 +63,43 @@ export function exportToPDF(category, inputValues, responseSections, filename = 
 
     let displayVal = String(value);
     if (field.type === 'file') {
-      displayVal = '[Bilddatei beigefügt]';
+      const filename = inputValues[`${field.name}_filename`];
+      displayVal = filename ? `[Datei angehängt: ${filename}]` : '[Datei angehängt]';
     }
 
     const labelOffset = 45;
     const lines = doc.splitTextToSize(displayVal, contentWidth - labelOffset);
     doc.text(lines, margin + labelOffset, y);
     y += (lines.length * 5) + 3;
+
+    if (field.type === 'file' && value && String(value).startsWith('data:image/')) {
+      try {
+        const props = doc.getImageProperties(value);
+        const imgRatio = props.width / props.height;
+        let targetWidth = 90; // max width in mm
+        let targetHeight = targetWidth / imgRatio;
+        if (targetHeight > 90) {
+          targetHeight = 90;
+          targetWidth = targetHeight * imgRatio;
+        }
+        checkPageBreak(targetHeight + 5);
+        
+        let format = String(value).split(';')[0].split('/')[1].toUpperCase();
+        if (format === 'JPG') format = 'JPEG';
+        
+        doc.addImage(value, format, margin + labelOffset, y, targetWidth, targetHeight);
+        y += targetHeight + 8;
+      } catch(e) {
+        console.error("Konnte Bild nicht zum PDF hinzufügen", e);
+      }
+    } else if (field.type === 'file' && value && String(value).startsWith('data:application/pdf')) {
+       doc.setFontSize(9);
+       doc.setTextColor(150, 150, 150);
+       doc.text("(PDF-Vorschau im generierten Bericht nicht möglich)", margin + labelOffset, y);
+       y += 8;
+       doc.setFontSize(10);
+       doc.setTextColor(15, 23, 42);
+    }
   }
 
   y += 5;

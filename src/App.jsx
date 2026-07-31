@@ -82,7 +82,7 @@ const TRANSLATIONS = {
     // New Library keys
     navLibrary: 'Bibliothek',
     libraryTitle: 'Zentrale Kategorie-Bibliothek',
-    libraryApiLabel: 'Bibliotheks-API-URL (leer für Simulation)',
+    libraryApiLabel: 'Bibliotheks-API-URL (leer für lokales PHP Backend)',
     libraryStatusNotInstalled: 'Nicht installiert',
     libraryStatusInstalled: 'Installiert',
     libraryStatusUpdate: 'Update verfügbar',
@@ -156,7 +156,7 @@ const TRANSLATIONS = {
     // New Library keys
     navLibrary: 'Library',
     libraryTitle: 'Central Category Library',
-    libraryApiLabel: 'Library API URL (empty for simulation)',
+    libraryApiLabel: 'Library API URL (empty for local PHP backend)',
     libraryStatusNotInstalled: 'Not installed',
     libraryStatusInstalled: 'Installed',
     libraryStatusUpdate: 'Update available',
@@ -309,9 +309,11 @@ export default function App() {
 
   // Library & Versioning States
   const [libraryCategories, setLibraryCategories] = useState([]);
+  const [selectedLibVersions, setSelectedLibVersions] = useState({});
   const [searchLibraryQuery, setSearchLibraryQuery] = useState('');
   const [isLibraryLoading, setIsLibraryLoading] = useState(false);
   const [libraryError, setLibraryError] = useState(null);
+  const [historyCategoryFilter, setHistoryCategoryFilter] = useState('all');
 
   // Publish Modal States
   const [publishingCategory, setPublishingCategory] = useState(null);
@@ -1150,12 +1152,33 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
                     <div style={{ marginBottom: '24px' }}>
                       <h4 style={{ color: 'var(--text-secondary)', marginBottom: '8px' }}>Ebene 1 - Eingabeparameter</h4>
                       <div style={{ background: 'rgba(0,0,0,0.1)', padding: '12px', borderRadius: '8px' }}>
-                        {Object.entries(selectedHistoryItem.inputs).map(([k, v]) => (
-                          <div key={k} style={{ display: 'flex', gap: '8px', fontSize: '13px', marginBottom: '4px' }}>
-                            <strong style={{ color: 'var(--text-secondary)' }}>{k}:</strong>
-                            <span>{v && String(v).startsWith('data:') ? '[Bilddatei]' : String(v)}</span>
-                          </div>
-                        ))}
+                        {Object.entries(selectedHistoryItem.inputs)
+                          .filter(([k, v]) => !k.endsWith('_filename'))
+                          .map(([k, v]) => {
+                            let isFile = false;
+                            let fileType = '';
+                            let fname = '';
+                            if (v && String(v).startsWith('data:')) {
+                              isFile = true;
+                              if (String(v).startsWith('data:image/')) fileType = 'image';
+                              if (String(v).startsWith('data:application/pdf')) fileType = 'pdf';
+                              fname = selectedHistoryItem.inputs[`${k}_filename`] || 'Datei';
+                            }
+                            return (
+                              <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', marginBottom: '16px' }}>
+                                <strong style={{ color: 'var(--text-secondary)' }}>{k}:{isFile ? ` [Datei: ${fname}]` : ''}</strong>
+                                {!isFile && <span>{String(v)}</span>}
+                                {isFile && fileType === 'image' && (
+                                  <img src={v} alt={fname} style={{ maxWidth: '100%', maxHeight: '300px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)', alignSelf: 'flex-start' }} />
+                                )}
+                                {isFile && fileType === 'pdf' && (
+                                  <object data={v} type="application/pdf" style={{ width: '100%', height: '400px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                    <div style={{ padding: '20px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', textAlign: 'center' }}>📄 PDF-Dokument angehängt ({fname})</div>
+                                  </object>
+                                )}
+                              </div>
+                            );
+                        })}
                       </div>
                     </div>
 
@@ -1174,12 +1197,34 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
                 </div>
               ) : (
                 <div className="card">
-                  <h2>{t.historyTitle}</h2>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    <h2>{t.historyTitle}</h2>
+                    {historyList.length > 0 && (
+                      <select 
+                        className="input-control" 
+                        style={{ width: 'auto', minWidth: '200px' }}
+                        value={historyCategoryFilter}
+                        onChange={(e) => setHistoryCategoryFilter(e.target.value)}
+                      >
+                        <option value="all">{lang === 'de' ? 'Alle Kategorien' : 'All Categories'}</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                   {historyList.length === 0 ? (
                     <p style={{ color: 'var(--text-secondary)', marginTop: '12px' }}>{t.noHistory}</p>
                   ) : (
                     <div className="history-list" style={{ marginTop: '20px' }}>
-                      {historyList.map(item => (
+                      {historyList.filter(item => historyCategoryFilter === 'all' || item.categoryId == historyCategoryFilter).length === 0 ? (
+                        <p style={{ color: 'var(--text-secondary)', marginTop: '12px' }}>
+                          {lang === 'de' ? 'Keine Einträge für diese Kategorie.' : 'No entries for this category.'}
+                        </p>
+                      ) : (
+                        historyList
+                          .filter(item => historyCategoryFilter === 'all' || item.categoryId == historyCategoryFilter)
+                          .map(item => (
                         <div key={item.id} className="history-item" onClick={() => setSelectedHistoryItem(item)}>
                           <div className="history-item-details">
                             <h4>{item.extendedTitle || item.categoryName}</h4>
@@ -1215,7 +1260,7 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
                             </button>
                           </div>
                         </div>
-                      ))}
+                      )))}
                     </div>
                   )}
                 </div>
@@ -1627,37 +1672,46 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
                                 <span>{t.historyVersions}</span>
                               </h4>
                               
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                {libCat.versions && [...libCat.versions].reverse().map(verObj => {
-                                  const isCurrentLocalVersion = localCat && localCat.version === verObj.version;
-                                  let actionText = t.installBtn;
-                                  let isRollback = false;
-                                  
-                                  if (localCat) {
-                                    if (localCat.version !== verObj.version) {
-                                      const localVerIdx = libCat.versions.findIndex(v => v.version === localCat.version);
-                                      const thisVerIdx = libCat.versions.findIndex(v => v.version === verObj.version);
-                                      if (localVerIdx !== -1 && thisVerIdx < localVerIdx) {
-                                        actionText = t.rollbackBtn;
-                                        isRollback = true;
-                                      } else {
-                                        actionText = t.installBtn;
-                                      }
+                              {(() => {
+                                const last5Versions = libCat.versions ? [...libCat.versions].reverse().slice(0, 5) : [];
+                                if (last5Versions.length === 0) return null;
+                                
+                                const selectedVerStr = selectedLibVersions[libCat.libraryKey] || last5Versions[0].version;
+                                const verObj = last5Versions.find(v => v.version === selectedVerStr) || last5Versions[0];
+                                
+                                const isCurrentLocalVersion = localCat && localCat.version === verObj.version;
+                                let actionText = t.installBtn;
+                                let isRollback = false;
+                                
+                                if (localCat) {
+                                  if (localCat.version !== verObj.version) {
+                                    const localVerIdx = libCat.versions.findIndex(v => v.version === localCat.version);
+                                    const thisVerIdx = libCat.versions.findIndex(v => v.version === verObj.version);
+                                    if (localVerIdx !== -1 && thisVerIdx < localVerIdx) {
+                                      actionText = t.rollbackBtn;
+                                      isRollback = true;
+                                    } else {
+                                      actionText = t.installBtn;
                                     }
                                   }
+                                }
 
-                                  return (
-                                    <div key={verObj.version} style={{ background: 'rgba(0,0,0,0.1)', padding: '12px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                return (
+                                  <div style={{ background: 'rgba(0,0,0,0.1)', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                                       <div style={{ flex: 1, minWidth: '200px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                          <strong style={{ fontSize: '13px' }}>v{verObj.version}</strong>
-                                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({verObj.date ? verObj.date.substring(0,10) : ''})</span>
-                                        </div>
-                                        {verObj.changelog && (
-                                          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>
-                                            &ldquo;{verObj.changelog}&rdquo;
-                                          </p>
-                                        )}
+                                        <select 
+                                          className="input-control" 
+                                          style={{ padding: '6px 10px', fontSize: '13px', width: '100%', maxWidth: '300px' }}
+                                          value={selectedVerStr}
+                                          onChange={(e) => setSelectedLibVersions(prev => ({...prev, [libCat.libraryKey]: e.target.value}))}
+                                        >
+                                          {last5Versions.map(v => (
+                                            <option key={v.version} value={v.version}>
+                                              v{v.version} ({v.date ? v.date.substring(0,10) : ''})
+                                            </option>
+                                          ))}
+                                        </select>
                                       </div>
                                       
                                       <div>
@@ -1678,9 +1732,14 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
                                         )}
                                       </div>
                                     </div>
-                                  );
-                                })}
-                              </div>
+                                    {verObj.changelog && (
+                                      <p style={{ color: 'var(--text-secondary)', fontSize: '12px', fontStyle: 'italic', margin: 0 }}>
+                                        &ldquo;{verObj.changelog}&rdquo;
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         );

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-07-31
+
+### Added
+- **Zentrale Bibliothek**: Neue Architektur mit integriertem PHP-Backend (`library-api.php`), um veröffentlichte Kategorien für alle Benutzer zentral zu speichern.
+- **Benutzeroberfläche (Bibliothek)**: Platzsparende Anzeige der Versionen über ein Drop-Down-Menü (letzte 5 Versionen) anstelle einer langen Liste.
+- **Benutzeroberfläche (Verlauf)**: Der Verlauf kann nun über ein Drop-Down-Menü nach einzelnen Kategorien gefiltert werden.
+
+### Fixed
+- **PDF-Export**: Bilder, die als Eingabeparameter hochgeladen wurden, werden nun direkt in den generierten PDF-Berichten dargestellt.
+
 ## [2.0.0] - 2026-07-12
 
 ### Added
