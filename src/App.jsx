@@ -303,10 +303,7 @@ export default function App() {
   const [libraryApiUrl, setLibraryApiUrl] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [availableModels, setAvailableModels] = useState([
-    { name: 'gemini-3.1-flash-lite-preview', displayName: 'Gemini 3.1 Flash Lite Preview' },
-    { name: 'gemini-1.5-flash', displayName: 'gemini-1.5-flash' },
-    { name: 'gemini-1.5-pro-latest', displayName: 'gemini-1.5-pro' },
-    { name: 'gemini-2.0-flash-exp', displayName: 'gemini-2.0-flash-exp' }
+    { name: 'gemini-3.1-flash-lite-preview', displayName: 'Gemini 3.1 Flash Lite Preview' }
   ]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
 
@@ -388,6 +385,37 @@ export default function App() {
     }
     loadData();
   }, []);
+
+  // Fetch models automatically when opening settings or API key changes
+  useEffect(() => {
+    if (activeTab === 'settings' && apiKey && availableModels.length <= 1 && !isFetchingModels) {
+      const fetchModels = async () => {
+        setIsFetchingModels(true);
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+          const data = await res.json();
+          if (data.models) {
+            const validModels = data.models
+              .filter(m => m.supportedGenerationMethods.includes('generateContent'))
+              .map(m => ({
+                name: m.name.replace('models/', ''),
+                displayName: m.displayName || m.name.replace('models/', '')
+              }));
+            setAvailableModels(validModels);
+            if (validModels.length > 0 && !validModels.find(m => m.name === model)) {
+              setModel(validModels[0].name);
+              dbService.saveSetting('gemini_model', validModels[0].name);
+            }
+          }
+        } catch (err) {
+          console.error('Fehler beim automatischen Laden der Modelle:', err);
+        } finally {
+          setIsFetchingModels(false);
+        }
+      };
+      fetchModels();
+    }
+  }, [activeTab, apiKey, availableModels.length, isFetchingModels, model]);
 
   const changeTheme = async (newTheme) => {
     setTheme(newTheme);
@@ -1423,50 +1451,24 @@ parts.push(inputs[textKey].length > 30 ? inputs[textKey].substring(0, 30) + '...
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    {t.apiModelLabel}
-                    <button 
-                      type="button" 
-                      onClick={async () => {
-                        if (!apiKey) {
-                          alert('Bitte zuerst einen API-Schlüssel eingeben!');
-                          return;
-                        }
-                        setIsFetchingModels(true);
-                        try {
-                          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-                          const data = await res.json();
-                          if (data.models) {
-                            const validModels = data.models
-                              .filter(m => m.supportedGenerationMethods.includes('generateContent'))
-                              .map(m => ({
-                                name: m.name.replace('models/', ''),
-                                displayName: m.displayName || m.name.replace('models/', '')
-                              }));
-                            setAvailableModels(validModels);
-                            if (validModels.length > 0) {
-                              setModel(validModels[0].name);
-                            }
-                            alert('Modelle erfolgreich geladen!');
-                          } else {
-                            alert('Fehler: ' + (data.error?.message || 'Keine Modelle gefunden'));
-                          }
-                        } catch (err) {
-                          alert('Netzwerkfehler: ' + err.message);
-                        } finally {
-                          setIsFetchingModels(false);
-                        }
-                      }}
-                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline', fontSize: '12px' }}
-                      disabled={isFetchingModels}
-                    >
-                      {isFetchingModels ? 'Lade...' : 'Verfügbare Modelle abrufen'}
-                    </button>
-                  </label>
-                  <select className="input-control" value={model} onChange={e => setModel(e.target.value)}>
-                    {availableModels.map(m => (
-                      <option key={m.name} value={m.name}>{m.displayName} ({m.name})</option>
-                    ))}
+                  <label className="form-label">{t.apiModelLabel}</label>
+                  <select 
+                    className="input-control" 
+                    value={model} 
+                    onChange={async (e) => {
+                      const newModel = e.target.value;
+                      setModel(newModel);
+                      await dbService.saveSetting('gemini_model', newModel);
+                    }}
+                    disabled={isFetchingModels || !apiKey}
+                  >
+                    {isFetchingModels ? (
+                      <option value={model}>Lade Modelle...</option>
+                    ) : (
+                      availableModels.map(m => (
+                        <option key={m.name} value={m.name}>{m.displayName} ({m.name})</option>
+                      ))
+                    )}
                   </select>
                 </div>
 
