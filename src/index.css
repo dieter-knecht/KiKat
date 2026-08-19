@@ -14,11 +14,11 @@
   --text-muted: #64748b;
   
   --border: rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(99, 102, 241, 0.5);
+  --border-focus: rgba(96, 165, 250, 0.5);
   
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-glow: rgba(99, 102, 241, 0.25);
+  --accent: #60a5fa;
+  --accent-hover: #3b82f6;
+  --accent-glow: rgba(96, 165, 250, 0.25);
   
   --success: #10b981;
   --error: #f43f5e;
@@ -43,7 +43,7 @@
   --text-muted: #94a3b8;
   
   --border: rgba(0, 0, 0, 0.08);
-  --border-focus: rgba(99, 102, 241, 0.5);
+  --border-focus: rgba(96, 165, 250, 0.5);
   
   --accent: #4f46e5;
   --accent-hover: #3730a3;
@@ -219,7 +219,7 @@ body {
 }
 
 .card:hover {
-  border-color: rgba(99, 102, 241, 0.2);
+  border-color: rgba(96, 165, 250, 0.2);
 }
 
 /* Buttons */
@@ -339,7 +339,7 @@ body {
 
 .file-dropzone:hover, .file-dropzone.dragging {
   border-color: var(--accent);
-  background-color: rgba(99, 102, 241, 0.04);
+  background-color: rgba(96, 165, 250, 0.04);
 }
 
 .file-preview {
@@ -355,7 +355,7 @@ body {
 
 .file-preview.dragging {
   border-color: var(--accent);
-  background-color: rgba(99, 102, 241, 0.08);
+  background-color: rgba(96, 165, 250, 0.08);
   opacity: 0.8;
 }
 
@@ -564,7 +564,7 @@ body {
 
 .history-item:hover {
   background-color: rgba(255, 255, 255, 0.02);
-  border-color: rgba(99, 102, 241, 0.15);
+  border-color: rgba(96, 165, 250, 0.15);
 }
 
 .history-item-details h4 {
